@@ -1,246 +1,157 @@
-// server.js
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import { orchestrate } from "./services/scraperOrchestrator.js";
+import { parseQuery } from "./services/queryParser.js";
+import { getContext, updateContext } from "./services/contextManager.js";
+import {
+  formatJobsReply,
+  formatSalaryReply,
+  formatErrorReply,
+  formatClarificationReply,
+} from "./services/responseFormatter.js";
 
-import express from "express"
-import cors from "cors"
-import puppeteer from "puppeteer"
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
-const app = express()
-app.use(cors())
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /chat  ← Flutter calls this
+// Body:     { "sessionId": "abc123", "message": "flutter jobs in chennai" }
+// Response: { "reply": "...", "jobs": [...], "intent": {}, "context": {} }
+// ─────────────────────────────────────────────────────────────────────────────
+app.post("/chat", async (req, res) => {
+  const { sessionId, message } = req.body;
 
-const PORT = 3000
-
-async function launchBrowser() {
-  return puppeteer.launch({
-    headless: true,
-    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    protocolTimeout: 120000,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  })
-}
-
-async function searchIndeed(page, query, location) {
-  try {
-    console.log("---- Indeed Scraper START ----")
-
-    const url =
-      `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"
-    )
-
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 })
-
-    // wait for job container
-    await page.waitForSelector("#mosaic-provider-jobcards", { timeout: 20000 })
-
-    // scroll to load jobs
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight)
-    })
-
-    await new Promise(r => setTimeout(r, 2000))
-
-    const jobs = await page.evaluate(() => {
-
-      const results = []
-
-      const cards = document.querySelectorAll(
-        ".job_seen_beacon, .jobsearch-SerpJobCard"
-      )
-
-      cards.forEach(card => {
-
-        const title =
-          card.querySelector("h2 a span")?.innerText?.trim()
-
-        const company =
-          card.querySelector(".companyName")?.innerText?.trim()
-
-        const location =
-          card.querySelector(".companyLocation")?.innerText?.trim()
-
-        const link =
-          card.querySelector("h2 a")?.href
-
-        if (title) {
-          results.push({
-            source: "Indeed",
-            title,
-            company,
-            location,
-            link
-          })
-        }
-
-      })
-
-      return results
-    })
-
-    console.log("Indeed jobs scraped:", jobs.length)
-
-    return jobs
-
-  } catch (error) {
-
-    console.log("Indeed ERROR:", error.message)
-
-    return []
+  if (!sessionId || !message) {
+    return res.status(400).json({ error: "sessionId and message are required" });
   }
-}
 
-async function searchLinkedIn(page, query, location) {
+  console.log(`\n[/chat] session=${sessionId} → "${message}"`);
 
-  const url = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}`
+  // 1. Load remembered role+location from earlier turns
+  const context = getContext(sessionId);
 
-  await page.goto(url, { waitUntil: "domcontentloaded" })
+  // 2. Parse the message (intent + entities)
+  const parsed = parseQuery(message, context);
+  console.log(`[/chat] parsed →`, parsed);
 
-  return page.evaluate(() => {
+  const { intent, role, location, experience } = parsed;
 
-    const jobs = []
+  // 3. Persist extracted fields into session
+  updateContext(sessionId, {
+    role,
+    location,
+    turn: { role: "user", content: message },
+  });
 
-    document.querySelectorAll(".base-card").forEach(job => {
+  // 4. Need at least role or location
+  if (!role && !location) {
+    const reply = formatClarificationReply();
+    return res.json({
+      reply:   reply.text,
+      jobs:    [],
+      intent:  parsed,
+      context: getContext(sessionId),
+    });
+  }
 
-      const title = job.querySelector(".base-search-card__title")?.innerText
-      const company = job.querySelector(".base-search-card__subtitle")?.innerText
-      const location = job.querySelector(".job-search-card__location")?.innerText
-      const link = job.querySelector("a")?.href
+  try {
+    let response;
 
-      if (title) {
-        jobs.push({
-          source: "LinkedIn",
-          title,
-          company,
-          location,
-          link
-        })
+    if (intent === "salary") {
+      response = formatSalaryReply(role, location, experience);
+
+    } else if (intent === "reviews") {
+      response = {
+        text: `🏢 Company reviews for **${role}** in **${location}**\n\nCheck:\n- [Glassdoor](https://glassdoor.com)\n- [AmbitionBox](https://ambitionbox.com)`,
+        jobs: [],
+      };
+
+    } else {
+      // job_search (default)
+      if (!role) {
+        response = formatErrorReply();
+      } else {
+        console.log(`[/chat] Scraping → role="${role}" location="${location}"`);
+        const jobs = await orchestrate(role, location || "India");
+        response = formatJobsReply(jobs, role, location || "India");
       }
+    }
 
-    })
+    // 5. Save assistant reply to history
+    updateContext(sessionId, {
+      turn: { role: "assistant", content: response.text },
+    });
 
-    return jobs
-  })
-}
+    // 6. Send to Flutter
+    res.json({
+      reply:   response.text,
+      jobs:    response.jobs || [],
+      intent:  parsed,
+      context: getContext(sessionId),
+    });
 
-async function searchNaukri(page, query, location) {
-
-  try {
-
-    console.log("---- Naukri Scraper START ----")
-
-    const url =
-      `https://www.naukri.com/${encodeURIComponent(query)}-jobs-in-${encodeURIComponent(location)}`
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"
-    )
-
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000
-    })
-
-    await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 20000 })
-
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-
-    await new Promise(r => setTimeout(r, 2000))
-
-    const jobs = await page.evaluate(() => {
-
-      const results = []
-
-      const cards =
-        document.querySelectorAll(".srp-jobtuple-wrapper")
-
-      cards.forEach(card => {
-
-        const title =
-          card.querySelector(".title")?.innerText?.trim()
-
-        const company =
-          card.querySelector(".comp-name")?.innerText?.trim()
-
-        const location =
-          card.querySelector(".loc-wrap")?.innerText?.trim()
-
-        const link =
-          card.querySelector("a.title")?.href
-
-        if (title) {
-
-          results.push({
-            source: "Naukri",
-            title,
-            company,
-            location,
-            link
-          })
-
-        }
-
-      })
-
-      return results
-
-    })
-
-    console.log("Naukri jobs scraped:", jobs.length)
-
-    return jobs
-
-  } catch (error) {
-
-    console.log("Naukri ERROR:", error.message)
-
-    return []
-
+  } catch (err) {
+    console.error("[/chat] ERROR:", err.message);
+    res.status(500).json({
+      error: err.message,
+      reply: "⚠️ Something went wrong. Please try again.",
+      jobs:  [],
+    });
   }
+});
 
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /search-jobs  ← Browser test UI
+// Query: ?role=Flutter Developer&location=Chennai&sources=indeed,linkedin,naukri
+// ─────────────────────────────────────────────────────────────────────────────
 app.get("/search-jobs", async (req, res) => {
+  const { role, location, sources } = req.query;
 
-  const { query, location } = req.query
-
-  if (!query || !location) {
-    return res.json({ error: "query and location required" })
+  if (!role || !location) {
+    return res.status(400).json({ error: "role and location are required" });
   }
+
+  const sourceList = sources
+    ? sources.split(",").map((s) => s.trim().toLowerCase())
+    : ["indeed", "linkedin", "naukri"];
+
+  const startTime = Date.now();
+  console.log(`\n[/search-jobs] role="${role}" location="${location}" sources=${sourceList.join(",")}`);
 
   try {
-
-    const browser = await launchBrowser()
-
-    const indeedPage = await browser.newPage()
-    const linkedinPage = await browser.newPage()
-    const naukriPage = await browser.newPage()
-
-    const [indeed, linkedin, naukri] =
-      await Promise.all([
-        searchIndeed(indeedPage, query, location),
-        searchLinkedIn(linkedinPage, query, location),
-        searchNaukri(naukriPage, query, location)
-      ])
-
-    await browser.close()
-
-    const jobs = [...indeed, ...linkedin, ...naukri]
+    const jobs    = await orchestrate(role, location, sourceList);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
     res.json({
-      total: jobs.length,
-      jobs
-    })
-
-  } catch (error) {
-
-    res.json({
-      error: error.message
-    })
-
+      total:   jobs.length,
+      elapsed: `${elapsed}s`,
+      summary: {
+        indeed:   jobs.filter((j) => j.source === "Indeed").length,
+        linkedin: jobs.filter((j) => j.source === "LinkedIn").length,
+        naukri:   jobs.filter((j) => j.source === "Naukri").length,
+      },
+      jobs,
+    });
+  } catch (err) {
+    console.error("[/search-jobs] ERROR:", err.message);
+    res.status(500).json({ error: err.message });
   }
+});
 
-})
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /health
+// ─────────────────────────────────────────────────────────────────────────────
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
 
 app.listen(3000, "0.0.0.0", () => {
-  console.log("Server running on port 3000");
+  console.log("✅  Server running  → http://localhost:3000");
+  console.log("📱  Flutter /chat   → POST http://192.168.1.17:3000/chat");
+  console.log("🧪  Browser test UI → http://localhost:3000");
 });

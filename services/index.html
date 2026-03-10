@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Job Scraper — API Tester</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --surface2: #18181f;
+      --border: #2a2a38;
+      --accent: #6c63ff;
+      --accent2: #ff6584;
+      --green: #00e5a0;
+      --text: #e8e8f0;
+      --muted: #6b6b80;
+      --indeed: #2557a7;
+      --linkedin: #0077b5;
+      --naukri: #ef5a20;
+    }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface);
+    }
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    header span {
+      margin-left: auto;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--green);
+      background: rgba(0,229,160,.1);
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid rgba(0,229,160,.2);
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      height: calc(100vh - 61px);
+    }
+
+    /* ── Left Panel ── */
+    .panel {
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    label { font-size: 13px; color: var(--muted); margin-bottom: 6px; display: block; }
+
+    input[type="text"], select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+
+    .sources {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .source-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+    .source-toggle:has(input:checked) { border-color: var(--accent); }
+    .source-toggle input { display: none; }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+    .dot.indeed   { background: var(--indeed); }
+    .dot.linkedin { background: var(--linkedin); }
+    .dot.naukri   { background: var(--naukri); }
+    .source-toggle span { font-size: 14px; font-weight: 600; }
+    .source-toggle .check {
+      margin-left: auto;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+      transition: all .2s;
+    }
+    .source-toggle:has(input:checked) .check {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    /* ── URL Preview ── */
+    .url-preview {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .url-preview .label { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .url-preview code {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      word-break: break-all;
+    }
+
+    /* ── Run Button ── */
+    .run-btn {
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .run-btn:hover { opacity: .9; }
+    .run-btn:active { transform: scale(.98); }
+    .run-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Right Panel ── */
+    .results {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      padding: 0 24px;
+    }
+    .tab {
+      padding: 14px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+    }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+    /* ── Stats Bar ── */
+    .stats-bar {
+      padding: 12px 24px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      font-size: 12px;
+      font-family: 'DM Mono', monospace;
+    }
+    .stat { color: var(--muted); }
+    .stat strong { color: var(--text); }
+    .stat-divider { color: var(--border); }
+    .elapsed { margin-left: auto; color: var(--green); }
+
+    /* ── Content Area ── */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    /* ── Empty / Loading States ── */
+    .placeholder {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--muted);
+    }
+    .placeholder .icon { font-size: 48px; opacity: .3; }
+    .placeholder p { font-size: 14px; }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Job Cards ── */
+    .jobs-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .job-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 14px;
+      align-items: start;
+      transition: border-color .2s;
+    }
+    .job-card:hover { border-color: var(--accent); }
+
+    .source-badge {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .source-badge.Indeed   { background: rgba(37,87,167,.2);  color: #6b9cf0; }
+    .source-badge.LinkedIn { background: rgba(0,119,181,.2);  color: #5ab9f5; }
+    .source-badge.Naukri   { background: rgba(239,90,32,.2);  color: #f5945a; }
+
+    .job-info h3 {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .job-meta {
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .job-meta span::before { content: "· "; }
+    .job-meta span:first-child::before { content: ""; }
+    .salary-tag {
+      display: inline-block;
+      background: rgba(0,229,160,.1);
+      color: var(--green);
+      border: 1px solid rgba(0,229,160,.2);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+      margin-top: 6px;
+    }
+
+    .apply-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 14px;
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: all .2s;
+    }
+    .apply-btn:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    /* ── JSON View ── */
+    .json-view {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      color: #b0b0c8;
+    }
+    .json-key    { color: #a78bfa; }
+    .json-str    { color: #86efac; }
+    .json-num    { color: #fbbf24; }
+    .json-bool   { color: #f87171; }
+
+    /* ── Error ── */
+    .error-box {
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: 12px;
+      padding: 20px;
+      color: #f87171;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🔍</div>
+  <h1>Job Scraper API Tester</h1>
+  <span id="healthStatus">● Connecting...</span>
+</header>
+
+<div class="layout">
+
+  <!-- Left: Controls -->
+  <aside class="panel">
+    <p class="panel-title">Query Parameters</p>
+
+    <div>
+      <label>Job Role / Keywords</label>
+      <input type="text" id="roleInput" value="Flutter Developer" placeholder="e.g. React Engineer"/>
+    </div>
+
+    <div>
+      <label>Location</label>
+      <input type="text" id="locationInput" value="Chennai" placeholder="e.g. Bangalore"/>
+    </div>
+
+    <div>
+      <p class="panel-title" style="margin-bottom:10px">Data Sources</p>
+      <div class="sources">
+        <label class="source-toggle">
+          <input type="checkbox" value="indeed" checked id="srcIndeed"/>
+          <div class="dot indeed"></div>
+          <span>Indeed</span>
+          <div class="check">✓</div>
+        </label>
+        <label class="source-toggle">
+          <input type="checkbox" value="linkedin" checked id="srcLinkedin"/>
+          <div class="dot linkedin"></div>
+          <span>LinkedIn</span>
+          <div class="check">✓</div>
+        </label>
+        <label class="source-toggle">
+          <input type="checkbox" value="naukri" checked id="srcNaukri"/>
+          <div class="dot naukri"></div>
+          <span>Naukri</span>
+          <div class="check">✓</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="url-preview">
+      <div class="label">REQUEST URL</div>
+      <code id="urlPreview"></code>
+    </div>
+
+    <button class="run-btn" id="runBtn" onclick="runSearch()">
+      <span id="btnIcon">▶</span>
+      <span id="btnText">Run Search</span>
+    </button>
+
+    <!-- Quick examples -->
+    <div>
+      <p class="panel-title" style="margin-bottom:10px">Quick Examples</p>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button onclick="setExample('React Developer','Bangalore')" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 12px;color:var(--muted);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;text-align:left;">React Developer · Bangalore</button>
+        <button onclick="setExample('Node.js Backend Engineer','Hyderabad')" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 12px;color:var(--muted);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;text-align:left;">Node.js Engineer · Hyderabad</button>
+        <button onclick="setExample('Data Scientist','Mumbai')" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px 12px;color:var(--muted);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;text-align:left;">Data Scientist · Mumbai</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right: Results -->
+  <section class="results">
+    <div class="tabs">
+      <div class="tab active" id="tab-cards" onclick="switchTab('cards')">Job Cards</div>
+      <div class="tab" id="tab-json" onclick="switchTab('json')">Raw JSON</div>
+    </div>
+
+    <div class="stats-bar" id="statsBar" style="display:none">
+      <span class="stat">Total: <strong id="statTotal">0</strong></span>
+      <span class="stat-divider">|</span>
+      <span class="stat" style="color:#6b9cf0">Indeed: <strong id="statIndeed">0</strong></span>
+      <span class="stat" style="color:#5ab9f5">LinkedIn: <strong id="statLinkedin">0</strong></span>
+      <span class="stat" style="color:#f5945a">Naukri: <strong id="statNaukri">0</strong></span>
+      <span class="elapsed" id="statElapsed"></span>
+    </div>
+
+    <div class="content" id="contentArea">
+      <div class="placeholder">
+        <div class="icon">⚡</div>
+        <p>Enter a role + location and hit <strong>Run Search</strong></p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  let currentData = null;
+  let activeTab = 'cards';
+
+  // ── Health check ──────────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const res = await fetch('/health');
+      const data = await res.json();
+      document.getElementById('healthStatus').textContent = '● Online';
+      document.getElementById('healthStatus').style.color = '#00e5a0';
+    } catch {
+      document.getElementById('healthStatus').textContent = '● Offline';
+      document.getElementById('healthStatus').style.color = '#f87171';
+    }
+  }
+  checkHealth();
+
+  // ── URL Preview ────────────────────────────────────────────────
+  function updateUrlPreview() {
+    const role = document.getElementById('roleInput').value || 'Flutter Developer';
+    const loc  = document.getElementById('locationInput').value || 'Chennai';
+    const sources = getSelectedSources();
+    const url = `/search-jobs?role=${encodeURIComponent(role)}&location=${encodeURIComponent(loc)}&sources=${sources.join(',')}`;
+    document.getElementById('urlPreview').textContent = url;
+  }
+
+  document.getElementById('roleInput').addEventListener('input', updateUrlPreview);
+  document.getElementById('locationInput').addEventListener('input', updateUrlPreview);
+  document.querySelectorAll('.sources input').forEach(el => el.addEventListener('change', updateUrlPreview));
+  updateUrlPreview();
+
+  // ── Helpers ────────────────────────────────────────────────────
+  function getSelectedSources() {
+    return ['indeed','linkedin','naukri'].filter(s => document.getElementById('src' + s.charAt(0).toUpperCase() + s.slice(1)).checked);
+  }
+
+  function setExample(role, location) {
+    document.getElementById('roleInput').value = role;
+    document.getElementById('locationInput').value = location;
+    updateUrlPreview();
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    if (currentData) renderContent();
+  }
+
+  // ── Main Search ────────────────────────────────────────────────
+  async function runSearch() {
+    const role     = document.getElementById('roleInput').value.trim();
+    const location = document.getElementById('locationInput').value.trim();
+    const sources  = getSelectedSources();
+
+    if (!role || !location) {
+      alert('Please fill in both role and location');
+      return;
+    }
+    if (sources.length === 0) {
+      alert('Select at least one source');
+      return;
+    }
+
+    // Loading state
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    document.getElementById('btnIcon').textContent = '';
+    document.getElementById('btnText').textContent = 'Scraping...';
+
+    document.getElementById('statsBar').style.display = 'none';
+    document.getElementById('contentArea').innerHTML = `
+      <div class="placeholder">
+        <div class="spinner"></div>
+        <p>Scraping ${sources.join(', ')}...</p>
+        <p style="font-size:12px;color:var(--muted)">This may take 15–30 seconds</p>
+      </div>`;
+
+    try {
+      const url = `/search-jobs?role=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}&sources=${sources.join(',')}`;
+      const res  = await fetch(url);
+      currentData = await res.json();
+
+      if (currentData.error) throw new Error(currentData.error);
+
+      // Update stats
+      document.getElementById('statsBar').style.display = 'flex';
+      document.getElementById('statTotal').textContent   = currentData.total;
+      document.getElementById('statIndeed').textContent   = currentData.summary?.indeed ?? 0;
+      document.getElementById('statLinkedin').textContent = currentData.summary?.linkedin ?? 0;
+      document.getElementById('statNaukri').textContent   = currentData.summary?.naukri ?? 0;
+      document.getElementById('statElapsed').textContent  = `⏱ ${currentData.elapsed}`;
+
+      renderContent();
+    } catch (err) {
+      document.getElementById('contentArea').innerHTML = `
+        <div class="error-box">
+          <strong>Error:</strong> ${err.message}<br/><br/>
+          Make sure the server is running on port 3000.
+        </div>`;
+    } finally {
+      btn.disabled = false;
+      document.getElementById('btnIcon').textContent = '▶';
+      document.getElementById('btnText').textContent = 'Run Search';
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────
+  function renderContent() {
+    if (activeTab === 'cards') renderCards();
+    else renderJson();
+  }
+
+  function renderCards() {
+    const jobs = currentData.jobs || [];
+    if (jobs.length === 0) {
+      document.getElementById('contentArea').innerHTML = `
+        <div class="placeholder">
+          <div class="icon">😶</div>
+          <p>No jobs found. Try different keywords.</p>
+        </div>`;
+      return;
+    }
+
+    const html = jobs.map(job => `
+      <div class="job-card">
+        <div class="source-badge ${job.source}">${job.source.slice(0,2)}</div>
+        <div class="job-info">
+          <h3>${escHtml(job.title)}</h3>
+          <div class="job-meta">
+            <span>${escHtml(job.company)}</span>
+            <span>${escHtml(job.location)}</span>
+            ${job.experience ? `<span>${escHtml(job.experience)}</span>` : ''}
+            ${job.posted ? `<span>${escHtml(job.posted)}</span>` : ''}
+          </div>
+          ${job.salary ? `<div class="salary-tag">💰 ${escHtml(job.salary)}</div>` : ''}
+        </div>
+        ${job.link ? `<a class="apply-btn" href="${escHtml(job.link)}" target="_blank">Apply →</a>` : ''}
+      </div>
+    `).join('');
+
+    document.getElementById('contentArea').innerHTML = `<div class="jobs-grid">${html}</div>`;
+  }
+
+  function renderJson() {
+    const highlighted = syntaxHighlight(JSON.stringify(currentData, null, 2));
+    document.getElementById('contentArea').innerHTML = `<div class="json-view">${highlighted}</div>`;
+  }
+
+  function escHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function syntaxHighlight(json) {
+    return json
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+        let cls = 'json-num';
+        if (/^"/.test(match)) cls = /:$/.test(match) ? 'json-key' : 'json-str';
+        else if (/true|false/.test(match)) cls = 'json-bool';
+        return `<span class="${cls}">${match}</span>`;
+      });
+  }
+
+  // Allow Enter key in inputs
+  ['roleInput','locationInput'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') runSearch();
+    });
+  });
+</script>
+</body>
+</html>
