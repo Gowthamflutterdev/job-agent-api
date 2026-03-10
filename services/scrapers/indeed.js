@@ -1,74 +1,100 @@
 import { newPage } from "../../utils/browserPool.js";
 
-export async function scrapeIndeed(role, location) {
+export async function scrapeIndeed(role, location, experience = null) {
   let page;
   try {
-    console.log(`[Indeed] Scraping: "${role}" in "${location}"`);
+    console.log(`[Indeed] role="${role}" location="${location}" exp="${experience}"`);
     page = await newPage();
 
-    const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(location)}`;
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    let query = role;
+    if (experience && experience !== "Fresher") query += ` ${experience} experience`;
+    if (experience === "Fresher") query += " fresher";
 
-    // Wait for job cards to appear
-    await page.waitForSelector("#mosaic-provider-jobcards", { timeout: 20000 }).catch(() => {
-      console.log("[Indeed] Job cards selector timed out, trying fallback...");
-    });
+    const url = `https://in.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`;
+    console.log(`[Indeed] URL: ${url}`);
 
-    // Scroll to trigger lazy load
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+    const title = await page.title();
+    console.log(`[Indeed] Page title: "${title}"`);
+    if (title.toLowerCase().includes("robot") || title.toLowerCase().includes("captcha")) {
+      console.log("[Indeed] Bot detected — skipping");
+      return [];
+    }
+
+    await page.waitForSelector(
+      '#mosaic-provider-jobcards, [data-testid="jobsearch-ResultsList"], .job_seen_beacon',
+      { timeout: 20000 }
+    ).catch(() => {});
+
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await new Promise((r) => setTimeout(r, 2000));
 
-    const jobs = await page.evaluate(() => {
-      const results = [];
+    const locationFilter = (location || "india").toLowerCase();
 
-      const cards = document.querySelectorAll(
-        ".job_seen_beacon, .jobsearch-SerpJobCard, [data-testid='job-card']"
-      );
+    const jobs = await page.evaluate((locationFilter) => {
+      const results = [];
+      const selectors = ['.job_seen_beacon', '[data-testid="job-card"]', '[data-jk]'];
+      let cards = [];
+      for (const sel of selectors) {
+        cards = [...document.querySelectorAll(sel)];
+        if (cards.length > 0) break;
+      }
 
       cards.forEach((card) => {
-        const title =
-          card.querySelector("h2 a span[title], h2 a span, [data-testid='jobTitle'] span")
-            ?.innerText?.trim();
+        const titleEl =
+          card.querySelector('[data-testid="jobTitle"] a') ||
+          card.querySelector('[data-testid="jobTitle"]') ||
+          card.querySelector('h2 a span') ||
+          card.querySelector('h2 a');
+        const title = titleEl?.innerText?.trim();
 
         const company =
-          card.querySelector(
-            "[data-testid='company-name'], .companyName, .css-63koeb"
-          )?.innerText?.trim();
+          (card.querySelector('[data-testid="company-name"]') ||
+           card.querySelector('.companyName'))?.innerText?.trim();
 
-        const location =
-          card.querySelector(
-            "[data-testid='text-location'], .companyLocation, .css-1p0sjhy"
-          )?.innerText?.trim();
+        const jobLocation =
+          (card.querySelector('[data-testid="text-location"]') ||
+           card.querySelector('.companyLocation'))?.innerText?.trim();
 
         const salary =
-          card.querySelector(
-            "[data-testid='attribute_snippet_testid'], .salary-snippet, .estimated-salary"
-          )?.innerText?.trim() || null;
+          (card.querySelector('[data-testid="attribute_snippet_testid"]') ||
+           card.querySelector('.salary-snippet-container'))?.innerText?.trim() || null;
 
-        const linkEl = card.querySelector("h2 a");
-        const link = linkEl
-          ? "https://www.indeed.com" + (linkEl.getAttribute("href") || "")
-          : null;
+        const href = (card.querySelector('h2 a') || card.querySelector('a[data-jk]'))?.getAttribute("href") || "";
+        const link = href.startsWith("http") ? href : `https://in.indeed.com${href}`;
 
-        if (title) {
-          results.push({
-            source: "Indeed",
-            title,
-            company: company || "N/A",
-            location: location || "N/A",
-            salary,
-            link,
-          });
+        if (!title) return;
+
+        // ── LOCATION FILTER ──────────────────────────────────────
+        const locLower = (jobLocation || "").toLowerCase();
+        if (jobLocation && locationFilter !== "india" && locationFilter !== "remote") {
+          const matches =
+            locLower.includes(locationFilter) ||
+            locLower.includes("remote") ||
+            locLower.includes("work from home") ||
+            locLower.includes("hybrid");
+          if (!matches) return;
         }
+
+        results.push({
+          source:   "Indeed",
+          title,
+          company:  company    || "N/A",
+          location: jobLocation || locationFilter,
+          salary,
+          link,
+        });
       });
 
       return results;
-    });
+    }, locationFilter);
 
     console.log(`[Indeed] Found ${jobs.length} jobs`);
     return jobs;
-  } catch (error) {
-    console.error("[Indeed] ERROR:", error.message);
+
+  } catch (err) {
+    console.error("[Indeed] ERROR:", err.message);
     return [];
   } finally {
     if (page) await page.close().catch(() => {});

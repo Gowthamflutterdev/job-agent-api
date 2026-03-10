@@ -1,59 +1,61 @@
-import OpenAI from "openai"; // or use Google Generative AI SDK
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || null;
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const SYSTEM_PROMPT = `You are a job search assistant. Extract structured data from the user message.
+Return ONLY valid JSON, no markdown, no backticks, no explanation:
+{"intent":"jobs","role":null,"location":null,"experience":null}
 
-const INTENT_SYSTEM_PROMPT = `
-You are an AI that extracts structured job search intent from user messages.
-Return ONLY valid JSON with these fields:
-{
-  "intent": "job_search" | "salary_info" | "company_reviews" | "general_question",
-  "role": string | null,
-  "location": string | null,
-  "experience": string | null,
-  "salary": string | null,
-  "company": string | null,
-  "clarification_needed": boolean
-}
-Use conversation history to fill in missing fields from context.
-`;
+Rules:
+- intent: "jobs" | "salary" | "reviews"
+- If message is only a filter like "2 years experience" or "remote" — set role and location to null (use context values)
+- experience format: "2 years" | "Fresher" | null`;
 
-export async function parseIntent(userMessage, history) {
-  const messages = [
-    { role: "system", content: INTENT_SYSTEM_PROMPT },
-    ...history.slice(-6), // last 3 turns for context
-    { role: "user", content: userMessage },
-  ];
+export async function parseWithGemini(message, context = {}) {
+  if (!GEMINI_API_KEY || GEMINI_API_KEY === "your_gemini_key_here") return null;
 
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages,
-    response_format: { type: "json_object" },
-  });
+  try {
+    const prompt = `Context: role="${context.role||"none"}", location="${context.location||"none"}"
+User: "${message}"
+Return JSON only:`;
 
-  return JSON.parse(response.choices[0].message.content);
-}
+    const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${SYSTEM_PROMPT}\n\n${prompt}` }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 150 },
+      }),
+    });
 
-export async function generateChatResponse(userMessage, intent, scrapedData, history) {
-  const dataContext = JSON.stringify(scrapedData, null, 2).slice(0, 3000); // limit tokens
+    if (!res.ok) {
+      console.log(`[Gemini] HTTP ${res.status} — skipping`);
+      return null;
+    }
 
-  const systemPrompt = `
-You are a helpful job search assistant like Perplexity AI.
-Given scraped job data, respond conversationally.
-- For job searches: summarize top results with company, title, location, and link
-- For salary queries: give a range with sources
-- For company reviews: summarize ratings and sentiment
-- Always cite your sources like [Indeed], [LinkedIn], [Glassdoor]
-- Be concise, friendly, and structured with markdown
-`;
+    const data = await res.json();
+    const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...history.slice(-6),
-      { role: "user", content: `User asked: "${userMessage}"\n\nScraped data:\n${dataContext}` },
-    ],
-  });
+    if (!raw.trim()) {
+      console.log("[Gemini] Empty response — skipping");
+      return null;
+    }
 
-  return { text: response.choices[0].message.content };
+    // Strip any accidental markdown fences
+    const clean = raw.replace(/```json|```/g, "").trim();
+
+    // Find the JSON object even if there's surrounding text
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log("[Gemini] No JSON found in response:", raw);
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    console.log("[Gemini] parsed →", parsed);
+    return parsed;
+
+  } catch (err) {
+    console.log("[Gemini] Failed, using local parser:", err.message);
+    return null;
+  }
 }

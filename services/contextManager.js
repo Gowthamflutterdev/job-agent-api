@@ -1,25 +1,33 @@
-// In-memory session store (use Redis for production)
+// In-memory session store (replace with Redis for production)
 const sessions = {};
 
 export function getContext(sessionId) {
-  return sessions[sessionId] || { role: null, location: null, history: [] };
+  if (!sessions[sessionId]) {
+    sessions[sessionId] = {
+      role:       null,
+      location:   null,
+      experience: null,
+      history:    [],
+    };
+  }
+  return sessions[sessionId];
 }
 
 export function updateContext(sessionId, updates) {
-  if (!sessions[sessionId]) {
-    sessions[sessionId] = { role: null, location: null, history: [] };
-  }
+  const session = getContext(sessionId);
 
-  // Merge extracted fields (role, location) into session
-  if (updates.role)     sessions[sessionId].role     = updates.role;
-  if (updates.location) sessions[sessionId].location = updates.location;
+  // ── CRITICAL FIX: Only overwrite if NEW value exists ──────────
+  // Never wipe out role/location with null from a follow-up message
+  // "2 yr experience" should NOT clear role="Flutter Developer"
+  if (updates.role     !== null && updates.role     !== undefined) session.role     = updates.role;
+  if (updates.location !== null && updates.location !== undefined) session.location = updates.location;
+  if (updates.experience !== null && updates.experience !== undefined) session.experience = updates.experience;
 
-  // Append chat turn
+  // Append chat turn to history
   if (updates.turn) {
-    sessions[sessionId].history.push(updates.turn);
-    // Keep last 20 turns
-    if (sessions[sessionId].history.length > 20) {
-      sessions[sessionId].history = sessions[sessionId].history.slice(-20);
+    session.history.push(updates.turn);
+    if (session.history.length > 20) {
+      session.history = session.history.slice(-20);
     }
   }
 }
